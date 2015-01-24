@@ -1,0 +1,137 @@
+---
+title: 'Machine Learning project: predicting correctness of movement'
+author: "Loren Serfass"
+date: "01/17/2015"
+output:
+    html_document:
+        toc: true
+---
+
+```{r message=F, echo=F}
+library(ggplot2)
+library(caret)
+```
+
+## Load data
+
+```{r}
+pml.train.val <- read.csv('data/pml-training.csv', na.strings=c("","NA") )  # training and validation sets
+pml.test <- read.csv('data/pml-testing.csv', na.strings=c("","NA"))         # 20 test observations
+pml.train.val <- pml.train.val[,-1] # first column of file is row numbers
+pml.test <- pml.test[,-1]           # first column of file is row numbers
+```
+
+## Structure of the dataset
+
+The result variable is `classe`, a factor variable containing A, B, C, D, and E.
+
+I will not use the timestamp variables in my model: I take it that we are
+meant to be able to distinguish the motions regardless of when they occured.
+The `num_window` variable will not be used in the model, but will be used
+to aggregate the data per window.
+
+```{r}
+pml.train.val <- pml.train.val[,-(2:5)] # remove timestamp columns
+```
+
+The model will include only `user_name` and the following 52 variables (in black text), measured by accelerometers:
+
+<table border=1>
+<tr><td><font color='red'></font></td><td><font color='red'>belt</font></td><td><font color='red'>arm</font></td><td><font color='red'>dumbbell</font></td><td><font color='red'>forearm</font></td></tr>
+<tr><td><font color='red'>roll</font></td><td>roll_belt</td><td>roll_arm</td><td>roll_dumbbell</td><td>roll_forearm</td></tr>
+<tr><td><font color='red'>pitch</font></td><td>pitch_belt</td><td>pitch_arm</td><td>pitch_dumbbell</td><td>pitch_forearm</td></tr>
+<tr><td><font color='red'>yaw</font></td><td>yaw_belt</td><td>yaw_arm</td><td>yaw_dumbbell</td><td>yaw_forearm</td></tr>
+<tr><td><font color='red'>total_accel</font></td><td>total_accel_belt</td><td>total_accel_arm</td><td>total_accel_dumbbell</td><td>total_accel_forearm</td></tr>
+<tr><td><font color='red'>gyros_x</font></td><td>gyros_x_belt</td><td>gyros_x_arm</td><td>gyros_x_dumbbell</td><td>gyros_x_forearm</td></tr>
+<tr><td><font color='red'>gyros_y</font></td><td>gyros_y_belt</td><td>gyros_y_arm</td><td>gyros_y_dumbbell</td><td>gyros_y_forearm</td></tr>
+<tr><td><font color='red'>gyros_z</font></td><td>gyros_z_belt</td><td>gyros_z_arm</td><td>gyros_z_dumbbell</td><td>gyros_z_forearm</td></tr>
+<tr><td><font color='red'>accel_x</font></td><td>accel_x_belt</td><td>accel_x_arm</td><td>accel_x_dumbbell</td><td>accel_x_forearm</td></tr>
+<tr><td><font color='red'>accel_y</font></td><td>accel_y_belt</td><td>accel_y_arm</td><td>accel_y_dumbbell</td><td>accel_y_forearm</td></tr>
+<tr><td><font color='red'>accel_z</font></td><td>accel_z_belt</td><td>accel_z_arm</td><td>accel_z_dumbbell</td><td>accel_z_forearm</td></tr>
+<tr><td><font color='red'>magnet_x</font></td><td>magnet_x_belt</td><td>magnet_x_arm</td><td>magnet_x_dumbbell</td><td>magnet_x_forearm</td></tr>
+<tr><td><font color='red'>magnet_y</font></td><td>magnet_y_belt</td><td>magnet_y_arm</td><td>magnet_y_dumbbell</td><td>magnet_y_forearm</td></tr>
+<tr><td><font color='red'>magnet_z</font></td><td>magnet_z_belt</td><td>magnet_z_arm</td><td>magnet_z_dumbbell</td><td>magnet_z_forearm</td></tr>
+</table>
+
+</br>
+**Note:** The model won't include the remaining 100 columns,
+which are blank in the test set.
+They are "summary" columns: they are blank in the training set
+except for rows in which `new_window` is 'yes'.
+These columns aggregate the following statistics (in black), per window, for each sensor (shown for the belt sensor only). However,
+the labels of these columns seem to have been switched around and there are a lot of "#DIV/0!" errors.
+
+</br>
+<table border=1>
+<tr><td><font color='red'></font></td><td><font color='red'>roll</font></td><td><font color='red'>pitch</font></td><td><font color='red'>yaw</font></td><td><font color='red'>total_accel</font></td></tr>
+<tr><td><font color='red'>kurtosis</font></td><td>kurtosis_roll_belt</td><td>kurtosis_pitch_belt</td><td>kurtosis_yaw_belt</td><td></td></tr>
+<tr><td><font color='red'>skewness</font></td><td>skewness_roll_belt</td><td>skewness_pitch_belt</td><td>skewness_yaw_belt</td><td></td></tr>
+<tr><td><font color='red'>max</font></td><td>max_roll_belt</td><td>max_pitch_belt</td><td>max_yaw_belt</td><td></td></tr>
+<tr><td><font color='red'>min</font></td><td>min_roll_belt</td><td>min_pitch_belt</td><td>min_yaw_belt</td><td></td></tr>
+<tr><td><font color='red'>amplitude</font></td><td>amplitude_roll_belt</td><td>amplitude_pitch_belt</td><td>amplitude_yaw_belt</td><td></td></tr>
+<tr><td><font color='red'>var</font></td><td>var_roll_belt</td><td>var_pitch_belt</td><td>var_yaw_belt</td><td>var_total_accel_belt</td></tr>
+<tr><td><font color='red'>avg</font></td><td>avg_roll_belt</td><td>avg_pitch_belt</td><td>avg_yaw_belt</td><td></td></tr>
+<tr><td><font color='red'>stddev</font></td><td>stddev_roll_belt</td><td>stddev_pitch_belt</td><td>stddev_yaw_belt</td><td></td></tr>
+<table>
+</br>
+
+The following code removes these messed-up columns:
+
+```{r message=F}
+require(plyr)
+count.NA <- unlist(colwise(function(x) {sum(is.na(x))})(pml.train.val)) # count NAs in each column
+table(count.NA) # There are full columns and mostly-empty columns.
+pml.train.val <- pml.train.val[,count.NA == 0] # removes the summary columns
+```
+
+The paper (TODO: link to it) hints that per-window means are the most
+helpful predictors. This code constructs a much smaller dataset with
+the per-window column means.
+
+```{r}
+mean.pml.train.val <- aggregate(pml.train.val[,-c(1,2,55)],
+                                by=list(pml.train.val$user_name,
+                                        pml.train.val$num_window,
+                                        pml.train.val$classe),
+                                FUN=mean)
+names(mean.pml.train.val)[1:3] <- c('user_name', 'num_window', 'classe')
+```
+
+
+
+Looking for pairs of highly correlated numerical variables:
+
+```{r}
+M <- abs(cor(pml.train.val[,-c(1:3)]))
+diag(M) <- 0
+which(M > .95, arr.ind=T)
+```
+
+## Model building
+
+```{r}
+set.seed(8732)
+inTrain <- createDataPartition(mean.pml.train.val$classe, p=.80, list=F)
+training <- mean.pml.train.val[inTrain,]
+validation <- mean.pml.train.val[-inTrain,]
+rf.model <- train(classe ~ . - num_window, data=training, method='rf')
+```
+
+Pretty good accuracy -- when predicting means:
+
+```{r}
+val.pred <- predict(rf.model, validation)
+table(val.pred, validation$classe)
+sum(val.pred == validation$classe) / nrow(validation)
+```
+
+Testing prediction on the original observations (only from windows that were
+not used in model construction):
+
+```{r}
+allowed <- pml.train.val$num_window %in% validation$num_window
+pred <- predict(rf.model, pml.train.val[allowed,])
+table(pred, pml.train.val$classe[allowed])
+sum(pred == pml.train.val$classe[allowed]) / sum(allowed)
+```
+
