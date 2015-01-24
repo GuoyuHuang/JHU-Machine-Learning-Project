@@ -101,12 +101,6 @@ names(mean.pml.train.val)[1:3] <- c('user_name', 'num_window', 'classe')
 
 Looking for pairs of highly correlated numerical variables:
 
-```{r}
-M <- abs(cor(pml.train.val[,-c(1:3)]))
-diag(M) <- 0
-which(M > .95, arr.ind=T)
-```
-
 ## Model building
 
 ```{r}
