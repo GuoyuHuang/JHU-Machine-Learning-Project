@@ -62,21 +62,22 @@ if (window.hljs && document.readyState && document.readyState === "complete") {
 <ul>
 <li><a href="#load-data">Load data</a></li>
 <li><a href="#structure-of-the-dataset">Structure of the dataset</a></li>
+<li><a href="#model-building">Model building</a></li>
 </ul>
 </div>
 
 <div id="load-data" class="section level2">
 <h2>Load data</h2>
-<pre class="r"><code>pml.tr.cv &lt;- read.csv('data/pml-training.csv', na.strings=c(&quot;&quot;,&quot;NA&quot;)) # this is training and cross-validation sets
-pml.test &lt;- read.csv('data/pml-testing.csv', na.strings=c(&quot;&quot;,&quot;NA&quot;)) # 20 test observations
-pml.tr.cv &lt;- pml.tr.cv[,-1] # first column of file is row numbers
-pml.test &lt;- pml.test[,-1]   # first column of file is row numbers</code></pre>
+<pre class="r"><code>pml.train.val &lt;- read.csv('data/pml-training.csv', na.strings=c(&quot;&quot;,&quot;NA&quot;) )  # training and validation sets
+pml.test &lt;- read.csv('data/pml-testing.csv', na.strings=c(&quot;&quot;,&quot;NA&quot;))         # 20 test observations
+pml.train.val &lt;- pml.train.val[,-1] # first column of file is row numbers
+pml.test &lt;- pml.test[,-1]           # first column of file is row numbers</code></pre>
 </div>
 <div id="structure-of-the-dataset" class="section level2">
 <h2>Structure of the dataset</h2>
 <p>The result variable is <code>classe</code>, a factor variable containing A, B, C, D, and E.</p>
-<p>I will not use the timestamp or window variables in my model: I take it that we are meant to be able to distinguish the motions regardless of when they occured.</p>
-<pre class="r"><code>pml.tr.cv &lt;- pml.tr.cv[,-(2:6)] # remove timestamp and window columns</code></pre>
+<p>I will not use the timestamp variables in my model: I take it that we are meant to be able to distinguish the motions regardless of when they occured. The <code>num_window</code> variable will not be used in the model, but will be used to aggregate the data per window.</p>
+<pre class="r"><code>pml.train.val &lt;- pml.train.val[,-(2:5)] # remove timestamp columns</code></pre>
 <p>The model will include only <code>user_name</code> and the following 52 variables (in black text), measured by accelerometers:</p>
 <table border="1">
 <tr><td>
@@ -235,7 +236,7 @@ magnet_z_forearm
 </td></tr>
 </table>
 
-<p></br></br> <strong>Note:</strong> The model won’t include the remaining 100 columns, which are blank in the test set. They are “summary” columns: they are blank in the training set except for rows in which <code>new_window</code> is ‘yes’. These columns aggregate the following statistics (in black), per window, for each sensor (shown for the belt sensor only). However, the labels of these columns seem to have been switched around and there are a lot of “#DIV/0!” errors.</p>
+<p></br> <strong>Note:</strong> The model won’t include the remaining 100 columns, which are blank in the test set. They are “summary” columns: they are blank in the training set except for rows in which <code>new_window</code> is ‘yes’. These columns aggregate the following statistics (in black), per window, for each sensor (shown for the belt sensor only). However, the labels of these columns seem to have been switched around and there are a lot of “#DIV/0!” errors.</p>
 </br>
 <table border="1">
 <tr><td>
@@ -324,30 +325,58 @@ stddev_pitch_belt
 stddev_yaw_belt
 </td><td></td></tr>
 <table>
-<p></br></br></p>
-<p>The following code removes these distracting columns:</p>
+<p></br></p>
+<p>The following code removes these messed-up columns:</p>
 <pre class="r"><code>require(plyr)
-count.NA &lt;- unlist(colwise(function(x) {sum(is.na(x))})(pml.tr.cv)) # count NAs in each column
+count.NA &lt;- unlist(colwise(function(x) {sum(is.na(x))})(pml.train.val)) # count NAs in each column
 table(count.NA) # There are full columns and mostly-empty columns.</code></pre>
 <pre><code>## count.NA
 ##     0 19216 
-##    54   100</code></pre>
-<pre class="r"><code>pml.tr.cv &lt;- pml.tr.cv[,count.NA == 0] # removes the summary columns</code></pre>
-<p>Looking for pairs of highly correlated numerical variables:</p>
-<pre class="r"><code>M &lt;- abs(cor(pml.tr.cv[,-c(1,54)]))
-diag(M) &lt;- 0
-which(M &gt; .95, arr.ind=T)</code></pre>
-<pre><code>##                  row col
-## total_accel_belt   4   1
-## accel_belt_z      10   1
-## accel_belt_x       8   2
-## roll_belt          1   4
-## accel_belt_z      10   4
-## pitch_belt         2   8
-## roll_belt          1  10
-## total_accel_belt   4  10
-## gyros_dumbbell_z  33  31
-## gyros_dumbbell_x  31  33</code></pre>
+##    55   100</code></pre>
+<pre class="r"><code>pml.train.val &lt;- pml.train.val[,count.NA == 0] # removes the summary columns</code></pre>
+<p>The paper (TODO: link to it) hints that per-window means are the most helpful predictors. This code constructs a much smaller dataset with the per-window column means.</p>
+<pre class="r"><code>mean.pml.train.val &lt;- aggregate(pml.train.val[,-c(1,2,55)],
+                                by=list(pml.train.val$user_name,
+                                        pml.train.val$num_window,
+                                        pml.train.val$classe),
+                                FUN=mean)
+names(mean.pml.train.val)[1:3] &lt;- c('user_name', 'num_window', 'classe')</code></pre>
+</div>
+<div id="model-building" class="section level2">
+<h2>Model building</h2>
+<pre class="r"><code>set.seed(8732)
+inTrain &lt;- createDataPartition(mean.pml.train.val$classe, p=.80, list=F)
+training &lt;- mean.pml.train.val[inTrain,]
+validation &lt;- mean.pml.train.val[-inTrain,]
+rf.model &lt;- train(classe ~ . - num_window, data=training, method='rf')</code></pre>
+<pre><code>## Loading required package: randomForest
+## randomForest 4.6-10
+## Type rfNews() to see new features/changes/bug fixes.</code></pre>
+<p>Pretty good accuracy – when predicting means:</p>
+<pre class="r"><code>val.pred &lt;- predict(rf.model, validation)
+table(val.pred, validation$classe)</code></pre>
+<pre><code>##         
+## val.pred  A  B  C  D  E
+##        A 48  6  0  1  0
+##        B  0 26  2  0  2
+##        C  0  1 28  4  1
+##        D  0  0  0 22  0
+##        E  0  0  0  1 28</code></pre>
+<pre class="r"><code>sum(val.pred == validation$classe) / nrow(validation)</code></pre>
+<pre><code>## [1] 0.8941</code></pre>
+<p>Testing prediction on the original observations (only from windows that were not used in model construction):</p>
+<pre class="r"><code>allowed &lt;- pml.train.val$num_window %in% validation$num_window
+pred &lt;- predict(rf.model, pml.train.val[allowed,])
+table(pred, pml.train.val$classe[allowed])</code></pre>
+<pre><code>##     
+## pred   A   B   C   D   E
+##    A 989 138  15  35   8
+##    B  36 528  79  31  44
+##    C   8  47 569  57   4
+##    D  41   0  26 488   6
+##    E  11   4   9  33 625</code></pre>
+<pre class="r"><code>sum(pred == pml.train.val$classe[allowed]) / sum(allowed)</code></pre>
+<pre><code>## [1] 0.835</code></pre>
 </div>
 
 
