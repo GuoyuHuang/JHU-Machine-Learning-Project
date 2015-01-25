@@ -76,9 +76,9 @@ pml.test &lt;- pml.test[,-1]           # first column of file is row numbers</co
 <div id="structure-of-the-dataset" class="section level2">
 <h2>Structure of the dataset</h2>
 <p>The result variable is <code>classe</code>, a factor variable containing A, B, C, D, and E.</p>
-<p>I will not use the timestamp variables in my model: I take it that we are meant to be able to distinguish the motions regardless of when they occured. The <code>num_window</code> variable will not be used in the model, but will be used to aggregate the data per window.</p>
+<p>I will not use the timestamp variables in my model: I take it that we are meant to be able to distinguish the motions regardless of when they occured. The <code>num_window</code> variable will not be used in the model, but will be used to aggregate the data per window, with the main purpose of making a smaller dataset.</p>
 <pre class="r"><code>pml.train.val &lt;- pml.train.val[,-(2:5)] # remove timestamp columns</code></pre>
-<p>The model will include only <code>user_name</code> and the following 52 variables (in black text), measured by accelerometers:</p>
+<p>The model will include only <code>user_name</code> and the following 52 variables (in black text):</p>
 <table border="1">
 <tr><td>
 <font color="red"></font>
@@ -236,97 +236,8 @@ magnet_z_forearm
 </td></tr>
 </table>
 
-<p></br> <strong>Note:</strong> The model won’t include the remaining 100 columns, which are blank in the test set. They are “summary” columns: they are blank in the training set except for rows in which <code>new_window</code> is ‘yes’. These columns aggregate the following statistics (in black), per window, for each sensor (shown for the belt sensor only). However, the labels of these columns seem to have been switched around and there are a lot of “#DIV/0!” errors.</p>
-</br>
-<table border="1">
-<tr><td>
-<font color="red"></font>
-</td><td>
-<font color="red">roll</font>
-</td><td>
-<font color="red">pitch</font>
-</td><td>
-<font color="red">yaw</font>
-</td><td>
-<font color="red">total_accel</font>
-</td></tr>
-<tr><td>
-<font color="red">kurtosis</font>
-</td><td>
-kurtosis_roll_belt
-</td><td>
-kurtosis_pitch_belt
-</td><td>
-kurtosis_yaw_belt
-</td><td></td></tr>
-<tr><td>
-<font color="red">skewness</font>
-</td><td>
-skewness_roll_belt
-</td><td>
-skewness_pitch_belt
-</td><td>
-skewness_yaw_belt
-</td><td></td></tr>
-<tr><td>
-<font color="red">max</font>
-</td><td>
-max_roll_belt
-</td><td>
-max_pitch_belt
-</td><td>
-max_yaw_belt
-</td><td></td></tr>
-<tr><td>
-<font color="red">min</font>
-</td><td>
-min_roll_belt
-</td><td>
-min_pitch_belt
-</td><td>
-min_yaw_belt
-</td><td></td></tr>
-<tr><td>
-<font color="red">amplitude</font>
-</td><td>
-amplitude_roll_belt
-</td><td>
-amplitude_pitch_belt
-</td><td>
-amplitude_yaw_belt
-</td><td></td></tr>
-<tr><td>
-<font color="red">var</font>
-</td><td>
-var_roll_belt
-</td><td>
-var_pitch_belt
-</td><td>
-var_yaw_belt
-</td><td>
-var_total_accel_belt
-</td></tr>
-<tr><td>
-<font color="red">avg</font>
-</td><td>
-avg_roll_belt
-</td><td>
-avg_pitch_belt
-</td><td>
-avg_yaw_belt
-</td><td></td></tr>
-<tr><td>
-<font color="red">stddev</font>
-</td><td>
-stddev_roll_belt
-</td><td>
-stddev_pitch_belt
-</td><td>
-stddev_yaw_belt
-</td><td></td></tr>
-<table>
-<p></br></p>
-<p>The following code removes these messed-up columns:</p>
+<p><br /> <strong>Note:</strong> The model won’t include <a href="UnusedVariables.html">the remaining 100 columns</a>, They are “summary” columns which are blank in the training set except for rows in which <code>new_window</code> is ‘yes’. They are also blank in the test set.</p>
+<p>The following code removes the extra columns from the training set:</p>
 <pre class="r"><code>require(plyr)
 count.NA &lt;- unlist(colwise(function(x) {sum(is.na(x))})(pml.train.val)) # count NAs in each column
 table(count.NA) # There are full columns and mostly-empty columns.</code></pre>
@@ -334,18 +245,19 @@ table(count.NA) # There are full columns and mostly-empty columns.</code></pre>
 ##     0 19216 
 ##    55   100</code></pre>
 <pre class="r"><code>pml.train.val &lt;- pml.train.val[,count.NA == 0] # removes the summary columns</code></pre>
-<p>The paper (TODO: link to it) hints that per-window means are the most helpful predictors. This code constructs a much smaller dataset with the per-window column means.</p>
+<p>The <a href="http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf">paper</a> hints that per-window means are the most helpful predictors. This code constructs a much smaller dataset with the per-window column means:</p>
 <pre class="r"><code>mean.pml.train.val &lt;- aggregate(pml.train.val[,-c(1,2,55)],
                                 by=list(pml.train.val$user_name,
                                         pml.train.val$num_window,
                                         pml.train.val$classe),
                                 FUN=mean)
 names(mean.pml.train.val)[1:3] &lt;- c('user_name', 'num_window', 'classe')</code></pre>
-<p>Looking for pairs of highly correlated numerical variables:</p>
 </div>
 <div id="model-building" class="section level2">
 <h2>Model building</h2>
-<pre class="r"><code>set.seed(8732)
+<p>Following the hint in the paper, I used a random forest. Training a random forest on <code>pml.train.val</code> took more than 20 minutes on my computer (I stopped it). Instead I divided <code>mean.pml.train.val</code> into <code>training</code> and <code>validation</code>, and trained the model on <code>training</code>.</p>
+<p>The <code>caret</code> defaults resulted in about 83% accuracy when predicting on observations in <code>pml.train.val</code>, from windows not used <code>training</code>.</p>
+<pre class="r"><code>set.seed(8732) # typed by my cat
 inTrain &lt;- createDataPartition(mean.pml.train.val$classe, p=.80, list=F)
 training &lt;- mean.pml.train.val[inTrain,]
 validation &lt;- mean.pml.train.val[-inTrain,]
@@ -353,22 +265,11 @@ rf.model &lt;- train(classe ~ . - num_window, data=training, method='rf')</code>
 <pre><code>## Loading required package: randomForest
 ## randomForest 4.6-10
 ## Type rfNews() to see new features/changes/bug fixes.</code></pre>
-<p>Pretty good accuracy – when predicting means:</p>
-<pre class="r"><code>val.pred &lt;- predict(rf.model, validation)
-table(val.pred, validation$classe)</code></pre>
-<pre><code>##         
-## val.pred  A  B  C  D  E
-##        A 48  6  0  1  0
-##        B  0 26  2  0  2
-##        C  0  1 28  4  1
-##        D  0  0  0 22  0
-##        E  0  0  0  1 28</code></pre>
-<pre class="r"><code>sum(val.pred == validation$classe) / nrow(validation)</code></pre>
-<pre><code>## [1] 0.8941</code></pre>
-<p>Testing prediction on the original observations (only from windows that were not used in model construction):</p>
+<p>Testing prediction on the validation set (<code>pml.train.val</code>, using only rows from windows not used in <code>training</code>):</p>
 <pre class="r"><code>allowed &lt;- pml.train.val$num_window %in% validation$num_window
-pred &lt;- predict(rf.model, pml.train.val[allowed,])
-table(pred, pml.train.val$classe[allowed])</code></pre>
+pred &lt;- predict(rf.model, pml.train.val[allowed,])</code></pre>
+<p>Confusion matrix for predictions on validation set:</p>
+<pre class="r"><code>table(pred, pml.train.val$classe[allowed])</code></pre>
 <pre><code>##     
 ## pred   A   B   C   D   E
 ##    A 989 138  15  35   8
@@ -376,8 +277,13 @@ table(pred, pml.train.val$classe[allowed])</code></pre>
 ##    C   8  47 569  57   4
 ##    D  41   0  26 488   6
 ##    E  11   4   9  33 625</code></pre>
+<p>Validation set accuracy:</p>
 <pre class="r"><code>sum(pred == pml.train.val$classe[allowed]) / sum(allowed)</code></pre>
 <pre><code>## [1] 0.835</code></pre>
+<p>Finally, predictions on the test set:</p>
+<pre class="r"><code>predict(rf.model, pml.test)</code></pre>
+<pre><code>##  [1] C A A A A E D B A A A C B A E E A B B B
+## Levels: A B C D E</code></pre>
 </div>
 
 
