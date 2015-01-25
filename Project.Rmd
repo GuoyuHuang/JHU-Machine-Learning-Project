@@ -84,7 +84,7 @@ table(count.NA) # There are full columns and mostly-empty columns.
 pml.train.val <- pml.train.val[,count.NA == 0] # removes the summary columns
 ```
 
-The paper (TODO: link to it) hints that per-window means are the most
+The [paper](http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf) hints that per-window means are the most
 helpful predictors. This code constructs a much smaller dataset with
 the per-window column means.
 
